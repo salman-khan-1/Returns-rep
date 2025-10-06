@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Goods Return Scanner — Pro v5 Final</title>
+
+  <!-- Bootstrap CSS & JS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- SheetJS for Excel handling -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- QuaggaJS - Professional barcode scanner -->
+  <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+
+  <style>
+    :root{
+      --bg-1: #071026;
+      --bg-2: #071827;
+      --glass-border: rgba(255,255,255,0.06);
+      --muted: rgba(230,238,248,0.75);
+      --accent1: #47C0CF;
+      --accent2: #3F5EFB;
+      --card-radius: 12px;
+    }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      min-height:100%;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial;
+      background: radial-gradient(900px 300px at 10% 10%, rgba(63,94,251,0.08), transparent),
+                  radial-gradient(900px 300px at 90% 90%, rgba(71,192,207,0.04), transparent),
+                  linear-gradient(180deg,var(--bg-1), var(--bg-2));
+      color: #e6eef8;
+      padding: 18px;
+    }
+
+    /* glass card */
+    .glass {
+      background: linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border: 1px solid var(--glass-border);
+      border-radius: var(--card-radius);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+    }
+
+    .muted { color: var(--muted); }
+    .btn-accent { background: linear-gradient(90deg,var(--accent2),var(--accent1)); border: none; color: white; }
+    .btn-accent:hover { opacity: 0.9; }
+    .stat { min-width:120px; }
+    .status-none { background: rgba(239,68,68,0.04); }
+    .status-partial { background: rgba(245,158,11,0.05); }
+    .status-full { background: rgba(34,197,94,0.06); }
+
+    .filter-panel { transition: max-height .28s ease; overflow: hidden; }
+
+    table thead th { color: #cfe8ff; font-weight:600; font-size:0.9rem; }
+    table td { vertical-align: middle; color: #e8f6ff; font-size:0.95rem; }
+    .small-muted { font-size:0.88rem; color: var(--muted); }
+
+    /* Quagga Scanner Styles */
+    #scanner-container {
+      position: relative;
+      width: 100%;
+      height: 260px;
+      background: #061222;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    #scanner-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+    }
+    
+    .scanner-guide {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80%;
+      height: 120px;
+      border: 2px solid #47C0CF;
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    }
+    
+    .scanner-line {
+      position: absolute;
+      top: 0;
+      left: 10%;
+      width: 80%;
+      height: 2px;
+      background: #47C0CF;
+      animation: scan 2s linear infinite;
+    }
+    
+    @keyframes scan {
+      0% { top: 0; }
+      50% { top: 100%; }
+      100% { top: 0; }
+    }
+
+    .scanner-success {
+      border-color: #10b981 !important;
+      background: rgba(16, 185, 129, 0.1) !important;
+    }
+
+    @media (min-width: 992px) {
+      .split { display:grid; grid-template-columns:420px 1fr; gap:18px; align-items:start; }
+    }
+    @media (max-width:991px) {
+      .split { display:block; }
+      #scanner-container { height: 220px !important; }
+      .table-responsive { max-height: 360px !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3 class="mb-0">Goods Return Scanner — Pro v5</h3>
+      <div class="small-muted">Offline • Professional Barcode Scan • Excel & CSV export</div>
+    </div>
+
+    <div class="split">
+      <!-- LEFT: Controls & Scanner -->
+      <div class="glass p-3">
+        <div class="mb-2 d-flex justify-content-between align-items-start">
+          <div>
+            <div class="h6 mb-0">Upload & Scan</div>
+            <div class="small-muted">Supports Arabic columns (الرمز الخطي, الكمية الصادرة, NAME)</div>
+          </div>
+          <div>
+            <button id="helpBtn" class="btn btn-sm btn-outline-light">Help</button>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label small-muted">Excel file (.xlsx / .xls)</label>
+          <input id="fileInput" type="file" accept=".xlsx,.xls" class="form-control form-control-sm" />
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label small-muted">Scan / Enter Barcode</label>
+          <div class="input-group">
+            <input id="barcodeInput" class="form-control form-control-sm" placeholder="Scan or type barcode and press Enter" />
+            <button id="scanToggle" class="btn btn-sm btn-accent">Start Scanner</button>
+          </div>
+        </div>
+
+        <div id="cameraArea" class="mb-3" style="display:none;">
+          <div id="scanner-container">
+            <div id="scanner-overlay">
+              <div class="scanner-guide">
+                <div class="scanner-line"></div>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex justify-content-between small-muted mt-1">
+            <div id="scanStatus">Scanner ready</div>
+            <div id="lastCode">—</div>
+          </div>
+        </div>
+
+        <hr />
+
+        <div id="itemPanel" style="display:none;">
+          <h6 class="mb-2">Item</h6>
+          <div id="itemInfo" class="mb-2 small-muted"></div>
+
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small-muted">Qty Returned</label>
+              <input id="qtyReturned" class="form-control form-control-sm" disabled />
+            </div>
+            <div class="col-6">
+              <label class="form-label small-muted">Qty Received (this scan)</label>
+              <input id="qtyReceived" type="number" min="0" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 mt-2">
+              <label class="form-label small-muted">Total Qty Received</label>
+              <input id="qtyReceivedTotal" class="form-control form-control-sm" disabled />
+            </div>
+            <div class="col-6 mt-2">
+              <label class="form-label small-muted">Location</label>
+              <input id="location" class="form-control form-control-sm" placeholder="Storage location" />
+            </div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button id="updateBtn" class="btn btn-accent btn-sm">Update Record</button>
+            <button id="clearBtn" class="btn btn-sm btn-outline-light">Clear</button>
+            <div class="form-check form-switch ms-2 mt-1">
+              <input class="form-check-input" type="checkbox" id="autosave" checked>
+              <label class="form-check-label small-muted" for="autosave">Auto-save (browser)</label>
+            </div>
+          </div>
+
+          <div class="mt-2"><div id="itemNote" class="small-muted"></div></div>
+        </div>
+      </div>
+      <!-- RIGHT: Dashboard & Table -->
+      <div>
+        <div class="glass p-3 mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div><strong>Summary</strong><div class="small-muted">Live totals (filtered view)</div></div>
+            <div class="d-flex gap-3">
+              <div class="text-center"><div class="small-muted">Items</div><div id="statItems" class="fs-5 fw-bold">0</div></div>
+              <div class="text-center"><div class="small-muted">Returned</div><div id="statReturned" class="fs-5 fw-bold">0</div></div>
+              <div class="text-center"><div class="small-muted">Received</div><div id="statReceived" class="fs-5 fw-bold">0</div></div>
+              <div class="text-center"><div class="small-muted">Fully</div><div id="statFully" class="fs-5 fw-bold">0</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass p-3">
+          <div class="d-flex justify-content-between mb-2 align-items-center">
+            <div class="d-flex gap-2 align-items-center">
+              <button id="filterToggle" class="btn btn-sm btn-outline-light">Filters</button>
+              <div class="input-group input-group-sm ms-2">
+                <span class="input-group-text bg-transparent border-light small-muted">🔎</span>
+                <input id="searchInput" class="form-control form-control-sm" placeholder="Search barcode, supplier, item name" />
+              </div>
+            </div>
+
+            <div class="d-flex gap-2">
+              <button id="exportExcel" class="btn btn-success btn-sm">Export Excel</button>
+              <button id="exportCsv" class="btn btn-outline-light btn-sm">Export CSV</button>
+            </div>
+          </div>
+
+          <div id="filterPanel" class="filter-panel mb-2" style="max-height:0;">
+            <div class="d-flex gap-2 flex-wrap mb-2 align-items-center">
+              <select id="statusSelect" class="form-select form-select-sm" style="width:190px;">
+                <option value="all">All</option>
+                <option value="not">Not Received</option>
+                <option value="partial">Partially Received</option>
+                <option value="full">Fully Received</option>
+              </select>
+              <button id="resetFilters" class="btn btn-sm btn-outline-light">Reset Filters</button>
+            </div>
+          </div>
+
+          <div class="table-responsive" style="max-height:520px; overflow:auto;">
+            <table class="table table-sm table-borderless align-middle" id="dataTable">
+              <thead><tr id="tableHead"></tr></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+      <div id="toastArea"></div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== App state ===== */
+    let sheetData = [];    // array of row objects
+    let headers = [];      // detected header keys
+    let scannerActive = false;
+    let lastDetected = null;
+    let scanCooldown = false;
+
+    const COL_AR_BARCODE = 'الرمز الخطي';
+    const COL_AR_QTY = 'الكمية الصادرة';
+    const COL_NAME = 'NAME';
+
+    /* ===== Elements ===== */
+    const fileInput = document.getElementById('fileInput');
+    const barcodeInput = document.getElementById('barcodeInput');
+    const scanToggle = document.getElementById('scanToggle');
+    const cameraArea = document.getElementById('cameraArea');
+    const scannerContainer = document.getElementById('scanner-container');
+    const scanStatus = document.getElementById('scanStatus');
+    const lastCode = document.getElementById('lastCode');
+    const scannerOverlay = document.getElementById('scanner-overlay');
+
+    const itemPanel = document.getElementById('itemPanel');
+    const itemInfo = document.getElementById('itemInfo');
+    const qtyReturned = document.getElementById('qtyReturned');
+    const qtyReceived = document.getElementById('qtyReceived');
+    const qtyReceivedTotal = document.getElementById('qtyReceivedTotal');
+    const locationInput = document.getElementById('location');
+    const updateBtn = document.getElementById('updateBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const autosave = document.getElementById('autosave');
+
+    const tableHead = document.getElementById('tableHead');
+    const tableBody = document.getElementById('tableBody');
+    const searchInput = document.getElementById('searchInput');
+    const filterToggle = document.getElementById('filterToggle');
+    const filterPanel = document.getElementById('filterPanel');
+    const statusSelect = document.getElementById('statusSelect');
+    const resetFilters = document.getElementById('resetFilters');
+    const exportExcelBtn = document.getElementById('exportExcel');
+    const exportCsvBtn = document.getElementById('exportCsv');
+
+    const statItems = document.getElementById('statItems');
+    const statReturned = document.getElementById('statReturned');
+    const statReceived = document.getElementById('statReceived');
+    const statFully = document.getElementById('statFully');
+
+    /* ===== Utilities ===== */
+    function normalize(v){ 
+      if(v === null || v === undefined) return ''; 
+      return String(v).trim(); 
+    }
+
+    function showToast(msg, delay=2200){
+      const area = document.getElementById('toastArea');
+      const el = document.createElement('div');
+      el.className = 'toast align-items-center text-white bg-dark border-0 mb-2';
+      el.role = 'alert';
+      el.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+      area.appendChild(el);
+      const bs = new bootstrap.Toast(el, { delay });
+      bs.show();
+      el.addEventListener('hidden.bs.toast', ()=> el.remove());
+    }
+
+    /* ===== Key detection & normalization ===== */
+    function detectKeys(sample){
+      if (!sample) return {};
+      const keys = Object.keys(sample || {});
+      const barcodeKey = keys.find(k => k === COL_AR_BARCODE) || 
+                         keys.find(k => k.toUpperCase() === 'BARCODE') || 
+                         keys.find(k => /رمز|barcode|code/i.test(k));
+      const qtyKey = keys.find(k => k === COL_AR_QTY) || 
+                     keys.find(k => /كمية|صادرة|returned|qty/i.test(k));
+      const supplierKey = keys.find(k => k === COL_NAME) || 
+                          keys.find(k => /supplier|name|المؤسسة|الشركة|NAME/i.test(k));
+      const itemNameKey = keys.find(k => k === 'التركيبة  -الاسم') || 
+                          keys.find(k => /name|تركيبة|الاسم/i.test(k));
+      return { barcodeKey, qtyKey, supplierKey, itemNameKey };
+    }
+
+    function ensureColumns(){
+      if(!headers.includes('Qty_Received')) headers.push('Qty_Received');
+      if(!headers.includes('Location')) headers.push('Location');
+      if(!headers.includes('Fully_Received')) headers.push('Fully_Received');
+      sheetData.forEach(r => {
+        if(r['Qty_Received'] === undefined) r['Qty_Received'] = '';
+        if(r['Location'] === undefined) r['Location'] = '';
+        if(r['Fully_Received'] === undefined) r['Fully_Received'] = '';
+      });
+    }
+
+    function markFully(row, qtyKey){
+      if (!row || !qtyKey) return;
+      const ret = parseFloat(row[qtyKey] || 0) || 0;
+      const rec = parseFloat(row['Qty_Received'] || 0) || 0;
+      row['Fully_Received'] = (ret > 0 && rec >= ret) ? 'Yes' : '';
+    }
+
+    function buildTableColumns(){
+      const sample = sheetData[0] || {};
+      const { barcodeKey, qtyKey, supplierKey, itemNameKey } = detectKeys(sample);
+      const cols = [];
+      if(barcodeKey) cols.push(barcodeKey); 
+      if(itemNameKey) cols.push(itemNameKey);
+      if(supplierKey) cols.push(supplierKey);
+      if(qtyKey) cols.push(qtyKey);
+      cols.push('Qty_Received', 'Location', 'Fully_Received');
+      return cols.filter(Boolean);
+    }
+
+    /* ===== Render table & dashboard ===== */
+    function renderTable(){
+      const cols = buildTableColumns();
+      tableHead.innerHTML = '';
+      cols.forEach(c => { 
+        const th = document.createElement('th'); 
+        th.textContent = c; 
+        tableHead.appendChild(th); 
+      });
+      applyFilters();
+    }
+
+    function applyFilters(){
+      const q = normalize(searchInput.value).toLowerCase();
+      const status = statusSelect.value;
+      const cols = buildTableColumns();
+      tableBody.innerHTML = '';
+
+      let totals = { items: 0, returned: 0, received: 0, fully: 0 };
+      const sample = sheetData[0] || {};
+      const { qtyKey } = detectKeys(sample);
+
+      for(const r of sheetData){
+        ensureColumns();
+        markFully(r, qtyKey);
+        const ret = parseFloat(r[qtyKey] || 0) || 0;
+        const rec = parseFloat(r['Qty_Received'] || 0) || 0;
+        let st = 'not';
+        if(rec > 0 && rec < ret) st = 'partial';
+        else if(rec >= ret && ret > 0) st = 'full';
+
+        if(status === 'not' && st !== 'not') continue;
+        if(status === 'partial' && st !== 'partial') continue;
+        if(status === 'full' && st !== 'full') continue;
+
+        const rowText = cols.map(c=> normalize(r[c] || '')).join(' ').toLowerCase();
+        if(q && !rowText.includes(q)) continue;
+
+        totals.items++;
+        totals.returned += ret;
+        totals.received += rec;
+        if(st === 'full') totals.fully++;
+
+        const tr = document.createElement('tr');
+        tr.className = (st === 'full') ? 'status-full' : ((st === 'partial') ? 'status-partial' : 'status-none');
+        cols.forEach(c => {
+          const td = document.createElement('td');
+          td.textContent = normalize(r[c] || '');
+          tr.appendChild(td);
+        });
+        tableBody.appendChild(tr);
+      }
+
+      statItems.textContent = totals.items;
+      statReturned.textContent = totals.returned;
+      statReceived.textContent = totals.received;
+      statFully.textContent = totals.fully;
+    }
+
+    /* ===== File load ===== */
+    fileInput.addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if(!f) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          sheetData = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          headers = Object.keys(sheetData[0] || {});
+          ensureColumns();
+          renderTable();
+          showToast('Excel loaded — ' + sheetData.length + ' rows');
+
+          const saved = localStorage.getItem('grs_v5_autosave');
+          if(saved){
+            try {
+              const parsed = JSON.parse(saved);
+              if(Array.isArray(parsed) && parsed.length > 0){
+                if(confirm('Restore autosaved data from browser?')) {
+                  sheetData = parsed;
+                  headers = Object.keys(sheetData[0] || {});
+                  ensureColumns();
+                  renderTable();
+                  showToast('Autosave restored');
+                }
+              }
+            } catch(e){
+              console.error('Error restoring autosave:', e);
+            }
+          }
+
+        } catch(err) {
+          console.error(err);
+          alert('Failed to read Excel: ' + (err && err.message ? err.message : err));
+        }
+      };
+      reader.readAsArrayBuffer(f);
+    });
+
+    /* ===== Find & open record by barcode ===== */
+    function findRecord(code){
+      const c = normalize(code);
+      return sheetData.find(r => {
+        const { barcodeKey } = detectKeys(r);
+        if(barcodeKey && normalize(r[barcodeKey]) === c) return true;
+        if(r['BARCODE'] && normalize(r['BARCODE']) === c) return true;
+        return false;
+      });
+    }
+
+    function openRecord(code){
+      const found = findRecord(code);
+      if(!found){
+        if(confirm('Barcode not found. Create a new record for ' + code + '?')){
+          const newRow = {};
+          const sample = sheetData[0] || {};
+          const suggestedHeaders = Object.keys(sample).length ? Object.keys(sample) : [COL_AR_BARCODE, COL_AR_QTY, COL_NAME];
+          suggestedHeaders.forEach(h => newRow[h] = '');
+          newRow[COL_AR_BARCODE] = code;
+          newRow['Qty_Received'] = '';
+          newRow['Location'] = '';
+          newRow['Fully_Received'] = '';
+          sheetData.push(newRow);
+          renderTable();
+          openRecord(code);
+        } else {
+          barcodeInput.value = '';
+        }
+        return;
+      }
+
+      const { qtyKey, supplierKey } = detectKeys(found);
+      itemPanel.style.display = 'block';
+      const barcodeKey = detectKeys(found).barcodeKey || 'الرمز الخطي';
+      itemInfo.innerHTML = `<strong>${normalize(found[barcodeKey] || found['BARCODE'] || '')}</strong><div class="small-muted">${normalize(found[supplierKey] || found['NAME'] || '')}</div>`;
+      qtyReturned.value = found[qtyKey] || '';
+      qtyReceivedTotal.value = found['Qty_Received'] || '';
+      locationInput.value = found['Location'] || '';
+      qtyReceived.value = '';
+      setTimeout(()=> qtyReceived.focus(), 120);
+    }
+
+    barcodeInput.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){
+        const code = barcodeInput.value.trim();
+        if(code) openRecord(code);
+      }
+    });
+
+    /* ===== Update record ===== */
+    updateBtn.addEventListener('click', () => {
+      const code = barcodeInput.value.trim();
+      if(!code){ showToast('Enter or scan a barcode first'); return; }
+      let rec = findRecord(code);
+      if(!rec){
+        if(!confirm('Record not found — create it?')) return;
+        const newRow = {};
+        const sample = sheetData[0] || {};
+        const suggestedHeaders = Object.keys(sample).length ? Object.keys(sample) : [COL_AR_BARCODE, COL_AR_QTY, COL_NAME];
+        suggestedHeaders.forEach(h => newRow[h] = '');
+        newRow[COL_AR_BARCODE] = code;
+        newRow['Qty_Received'] = '';
+        newRow['Location'] = '';
+        newRow['Fully_Received'] = '';
+        sheetData.push(newRow);
+        rec = newRow;
+      }
+      const add = parseFloat(qtyReceived.value || '0') || 0;
+      rec['Qty_Received'] = (parseFloat(rec['Qty_Received'] || 0) || 0) + add;
+      rec['Location'] = locationInput.value.trim() || rec['Location'];
+      const { qtyKey } = detectKeys(rec);
+      markFully(rec, qtyKey);
+      renderTable();
+      showToast('Updated ' + code);
+      if(autosave.checked){
+        try { localStorage.setItem('grs_v5_autosave', JSON.stringify(sheetData)); } catch(e){}
+      }
+      barcodeInput.value = '';
+      qtyReceived.value = '';
+    });
+
+    clearBtn.addEventListener('click', () => {
+      barcodeInput.value = '';
+      qtyReceived.value = '';
+      locationInput.value = '';
+      itemPanel.style.display = 'none';
+    });
+
+    /* ===== Filters & search ===== */
+    filterToggle.addEventListener('click', () => {
+      filterPanel.style.maxHeight = filterPanel.style.maxHeight && filterPanel.style.maxHeight !== '0px' ? '0' : '240px';
+    });
+    searchInput.addEventListener('input', () => { applyFilters(); });
+    statusSelect.addEventListener('change', () => { applyFilters(); });
+    resetFilters.addEventListener('click', () => { 
+      searchInput.value=''; 
+      statusSelect.value='all'; 
+      applyFilters(); 
+    });
+
+    /* ===== Exports ===== */
+    exportExcelBtn.addEventListener('click', () => {
+      if (sheetData.length === 0) {
+        showToast('No data to export');
+        return;
+      }
+      const out = buildFilteredOutput();
+      const ws = XLSX.utils.json_to_sheet(out);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      XLSX.writeFile(wb, 'goods_return_export_v5.xlsx');
+      showToast('Excel exported');
+    });
+
+    exportCsvBtn.addEventListener('click', () => {
+      if (sheetData.length === 0) {
+        showToast('No data to export');
+        return;
+      }
+      const out = buildFilteredOutput();
+      if(out.length === 0){ showToast('No rows to export'); return; }
+      const header = Object.keys(out[0]);
+      const lines = [ header.join(',') ];
+      out.forEach(row => {
+        lines.push(header.map(h => escapeCsv(String(row[h] || ''))).join(','));
+      });
+      const csvData = lines.join('\n');
+      const blob = new Blob([csvData], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'goods_return_export_v5.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('CSV exported');
+    });
+
+    function escapeCsv(s){
+      if(s.includes(',') || s.includes('"') || s.includes('\n')){
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function buildFilteredOutput(){
+      const out = [];
+      const q = normalize(searchInput.value).toLowerCase();
+      const status = statusSelect.value;
+      const sample = sheetData[0] || {};
+      const { qtyKey } = detectKeys(sample);
+      for(const r of sheetData){
+        markFully(r, qtyKey);
+        const ret = parseFloat(r[qtyKey] || 0) || 0;
+        const rec = parseFloat(r['Qty_Received'] || 0) || 0;
+        let st = 'not';
+        if(rec > 0 && rec < ret) st = 'partial';
+        else if(rec >= ret && ret > 0) st = 'full';
+
+        if(status === 'not' && st !== 'not') continue;
+        if(status === 'partial' && st !== 'partial') continue;
+        if(status === 'full' && st !== 'full') continue;
+
+        const rowText = Object.values(r).join(' ').toLowerCase();
+        if(q && !rowText.includes(q)) continue;
+        out.push(r);
+      }
+      return out;
+    }
+
+    /* ===== QUAGGA JS Professional Scanner ===== */
+    scanToggle.addEventListener('click', () => {
+      if(!scannerActive) startScanner(); else stopScanner();
+    });
+
+    function startScanner() {
+      if (scannerActive) return;
+      
+      cameraArea.style.display = 'block';
+      scanToggle.textContent = 'Stop Scanner';
+      scanStatus.textContent = 'Initializing scanner...';
+      
+      // Configure Quagga for barcode scanning
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: scannerContainer,
+          constraints: {
+            width: 640,
+            height: 480,
+            facingMode: "environment" // Use rear camera
+          }
+        },
+        decoder: {
+          readers: [
+            "code_128_reader",
+            "ean_reader",
+            "ean_8_reader",
+            "code_39_reader",
+            "upc_reader",
+            "upc_e_reader"
+          ]
+        },
+        locate: true,
+        frequency: 10
+      }, function(err) {
+        if (err) {
+          console.error('Quagga init error:', err);
+          scanStatus.textContent = 'Scanner error';
+          showToast('Scanner initialization failed: ' + err.message);
+          stopScanner();
+          return;
+        }
+        
+        Quagga.start();
+        scannerActive = true;
+        scanStatus.textContent = 'Scanner active - point at barcode';
+        showToast('Professional scanner started');
+      });
+
+      // Handle successful detections
+      Quagga.onDetected(function(result) {
+        if (scanCooldown) return;
+        
+        const code = result.codeResult.code;
+        if (code && code !== lastDetected) {
+          lastDetected = code;
+          scanCooldown = true;
+          
+          // Visual feedback
+          scannerOverlay.classList.add('scanner-success');
+          lastCode.textContent = code;
+          barcodeInput.value = code;
+          
+          showToast(`Scanned: ${code}`);
+          openRecord(code);
+          
+          // Reset after short delay
+          setTimeout(() => {
+            scannerOverlay.classList.remove('scanner-success');
+            scanCooldown = false;
+            lastDetected = null;
+          }, 1500);
+        }
+      });
+
+      // Handle process
+      Quagga.onProcessed(function(result) {
+        if (!result) return;
+        
+        const drawingCtx = Quagga.canvas.ctx.overlay;
+        const drawingCanvas = Quagga.canvas.dom.overlay;
+        
+        if (result.boxes) {
+          drawingCtx.clearRect(0, 0, parseInt(drawingCanvas.getAttribute("width")), parseInt(drawingCanvas.getAttribute("height")));
+          result.boxes.filter(function(box) {
+            return box !== result.box;
+          }).forEach(function(box) {
+            Quagga.ImageDebug.drawPath(box, {x: 0, y: 1}, drawingCtx, {color: "green", lineWidth: 2});
+          });
+        }
+        
+        if (result.box) {
+          Quagga.ImageDebug.drawPath(result.box, {x: 0, y: 1}, drawingCtx, {color: "blue", lineWidth: 2});
+        }
+        
+        if (result.codeResult && result.codeResult.code) {
+          Quagga.ImageDebug.drawPath(result.line, {x: 'x', y: 'y'}, drawingCtx, {color: 'red', lineWidth: 3});
+        }
+      });
+    }
+
+    function stopScanner() {
+      if (!scannerActive) return;
+      
+      try {
+        Quagga.stop();
+        scannerActive = false;
+        cameraArea.style.display = 'none';
+        scanToggle.textContent = 'Start Scanner';
+        scanStatus.textContent = 'Scanner off';
+        scannerOverlay.classList.remove('scanner-success');
+        showToast('Scanner stopped');
+      } catch (e) {
+        console.warn('Error stopping scanner:', e);
+        scannerActive = false;
+        cameraArea.style.display = 'none';
+        scanToggle.textContent = 'Start Scanner';
+        scanStatus.textContent = 'Scanner off';
+      }
+    }
+
+    // Help button
+    document.getElementById('helpBtn').addEventListener('click', () => {
+      showToast('1. Upload Excel 2. Start Scanner 3. Point at barcodes 4. Update quantities');
+    });
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+      showToast('Professional Goods Return Scanner Ready');
+      
+      // Load previous session
+      const saved = localStorage.getItem('grs_v5_autosave');
+      if(saved){
+        try {
+          const parsed = JSON.parse(saved);
+          if(Array.isArray(parsed) && parsed.length > 0){
+            sheetData = parsed;
+            headers = Object.keys(sheetData[0] || {});
+            ensureColumns();
+            renderTable();
+            showToast('Previous session data loaded');
+          }
+        } catch(e){
+          console.error('Error loading saved data:', e);
+        }
+      }
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+      if (scannerActive) {
+        stopScanner();
+      }
+    });
+  </script>
+</body>
+</html>
