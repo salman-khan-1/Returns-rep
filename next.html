@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -93,10 +94,11 @@ table input {
 /* ===== Print rules ===== */
 @media print {
   @page { size: A4 landscape; margin: 5mm; margin-top:42px; }
+
   body {
     margin: 0; padding: 0;
     /* ensure print is purely white */
-    background-color: #fff !important;
+    background-color: #white !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -108,10 +110,34 @@ table input {
   tr { page-break-inside: avoid; }
   table input { display: none; }
   .with-dash td:empty::after { content: "-"; display: block; }
+  .flag-top-right {
+ display: none;
 }
+
+/* Force all elements to have white background */
+* {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+}
+
+}
+/* Pakistan flag top-right */
+.flag-top-right {
+  position: fixed;
+  top: -3px;
+  right: 15px;
+  width: 100px; /* adjust size */
+  height: auto;
+  z-index: 9999;
+  margin-top: -15px;
+  pointer-events: none; /* prevents blocking clicks below */
+}
+
+
 </style>
 </head>
 <body>
+  <img src="/wao-removebg-preview.png" alt="Pakistan Flag" class="flag-top-right">
 <div class="container-fluid">
 
 <!-- ===== Glass Toolbar (actions) ===== -->
